@@ -22,24 +22,36 @@ st.markdown("""
     margin-bottom: 10px;
     display: flex;
     flex-direction: row;
+    color: black;
+    font-weight: 500;
 }
 .chat-message.user {
-    background-color: #f0f2f6;
+    background-color: #e6e6e6;
+    border-left: 5px solid #2e72ea;
 }
 .chat-message.assistant {
-    background-color: #e3f2fd;
+    background-color: #f5f5f5;
+    border-left: 5px solid #10a37f;
 }
 .chat-message .avatar {
-    width: 20%;
+    width: 10%;
+    display: flex;
+    align-items: center;
+    justify-content: center;
 }
 .chat-message .content {
-    width: 80%;
+    width: 90%;
 }
 .chat-message .avatar img {
     max-width: 40px;
     max-height: 40px;
     border-radius: 50%;
     object-fit: cover;
+}
+.content p {
+    font-size: 16px;
+    line-height: 1.5;
+    color: #000000;
 }
 </style>
 """, unsafe_allow_html=True)
@@ -88,9 +100,11 @@ def display_messages():
             if role == "user":
                 avatar = "👤"
                 bg_color = "user"
+                name = "Você"
             else:
                 avatar = "🤖"
                 bg_color = "assistant"
+                name = "Assistente"
                 
             st.markdown(f"""
             <div class="chat-message {bg_color}">
@@ -98,6 +112,7 @@ def display_messages():
                     <p>{avatar}</p>
                 </div>
                 <div class="content">
+                    <strong>{name}</strong>
                     <p>{content}</p>
                 </div>
             </div>
