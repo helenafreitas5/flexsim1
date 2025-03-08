@@ -1,6 +1,10 @@
 import streamlit as st
 import openai
 import os
+import requests
+import json
+import uuid
+import datetime
 from dotenv import load_dotenv
 
 # Carregar variáveis de ambiente (opcional, para segurança)
@@ -69,12 +73,44 @@ def get_openai_api_key():
     
     return api_key
 
+# Função para enviar dados para o webhook do Make
+def send_to_webhook(conversation_data):
+    try:
+        response = requests.post(
+            WEBHOOK_URL,
+            json=conversation_data,
+            headers={"Content-Type": "application/json"}
+        )
+        
+        if response.status_code == 200:
+            st.sidebar.success("Dados enviados com sucesso!", icon="✅")
+            return True
+        else:
+            st.sidebar.error(f"Erro ao enviar dados: {response.status_code}")
+            return False
+    except Exception as e:
+        st.sidebar.error(f"Erro na comunicação com webhook: {str(e)}")
+        return False
+
 # Inicialização da sessão
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
 if "assistant_id" not in st.session_state:
     st.session_state.assistant_id = ""
+    
+if "conversation_id" not in st.session_state:
+    st.session_state.conversation_id = str(uuid.uuid4())
+    
+if "user_info" not in st.session_state:
+    st.session_state.user_info = {
+        "name": "",
+        "email": "",
+        "phone": ""
+    }
+
+# URL do webhook Make
+WEBHOOK_URL = "https://hook.us2.make.com/iu7sc1vc4254f29zop2f6j8e24a4dnj4"
 
 # Sidebar para configurações
 st.sidebar.title("Configurações")
@@ -83,6 +119,23 @@ st.sidebar.title("Configurações")
 assistant_id = st.sidebar.text_input("ID do Assistente OpenAI", value=st.session_state.assistant_id)
 if assistant_id != st.session_state.assistant_id:
     st.session_state.assistant_id = assistant_id
+    
+# Informações do usuário para leads
+st.sidebar.title("Suas Informações")
+st.sidebar.markdown("Preencha para salvar seus dados de contato")
+
+user_name = st.sidebar.text_input("Nome", value=st.session_state.user_info["name"])
+user_email = st.sidebar.text_input("Email", value=st.session_state.user_info["email"])
+user_phone = st.sidebar.text_input("Telefone", value=st.session_state.user_info["phone"])
+
+# Atualiza as informações do usuário
+if (user_name != st.session_state.user_info["name"] or 
+    user_email != st.session_state.user_info["email"] or 
+    user_phone != st.session_state.user_info["phone"]):
+    
+    st.session_state.user_info["name"] = user_name
+    st.session_state.user_info["email"] = user_email
+    st.session_state.user_info["phone"] = user_phone
 
 # Título principal
 st.title("ChatBot com OpenAI Assistant")
@@ -176,6 +229,21 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 if assistant_message:
                     content = assistant_message.content[0].text.value
                     st.session_state.messages.append({"role": "assistant", "content": content})
+                    
+                    # Preparar dados para enviar ao webhook
+                    if st.session_state.user_info["email"]:  # Só envia se tiver pelo menos o email
+                        conversation_data = {
+                            "conversation_id": st.session_state.conversation_id,
+                            "timestamp": datetime.datetime.now().isoformat(),
+                            "user_info": st.session_state.user_info,
+                            "last_user_message": prompt,
+                            "last_assistant_response": content,
+                            "conversation_history": st.session_state.messages
+                        }
+                        
+                        # Enviar dados ao webhook de forma assíncrona
+                        send_to_webhook(conversation_data)
+                    
                     # Reexibir as mensagens com a resposta
                     display_messages()
                 else:
@@ -185,9 +253,30 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                 st.error(f"Erro ao comunicar com a API da OpenAI: {str(e)}")
 
 # Botão para limpar o histórico
-if st.button("Limpar Conversa"):
-    st.session_state.messages = []
-    st.experimental_rerun()
+col1, col2 = st.columns(2)
+
+with col1:
+    if st.button("Limpar Conversa"):
+        st.session_state.messages = []
+        st.session_state.conversation_id = str(uuid.uuid4())  # Gera novo ID de conversa
+        st.experimental_rerun()
+
+with col2:
+    if st.button("Salvar Conversa") and st.session_state.user_info["email"]:
+        # Preparar dados para envio
+        conversation_data = {
+            "conversation_id": st.session_state.conversation_id,
+            "timestamp": datetime.datetime.now().isoformat(),
+            "user_info": st.session_state.user_info,
+            "conversation_history": st.session_state.messages,
+            "action": "manual_save"
+        }
+        
+        # Enviar dados ao webhook
+        if send_to_webhook(conversation_data):
+            st.success("Conversa salva com sucesso!")
+        else:
+            st.error("Erro ao salvar conversa.")
 
 # Informações adicionais
 st.sidebar.markdown("---")
@@ -195,7 +284,20 @@ st.sidebar.markdown("""
 ### Como usar:
 1. Insira sua API key da OpenAI
 2. Insira o ID do seu assistente
-3. Converse com o chatbot!
+3. Preencha suas informações de contato para salvar suas conversas
+4. Converse com o chatbot!
 
 Para criar um assistente, visite o [OpenAI Playground](https://platform.openai.com/playground).
+""")
+
+# Informações sobre o webhook
+st.sidebar.markdown("---")
+st.sidebar.markdown("""
+### Integração com Make (Webhook)
+As conversas são salvas automaticamente quando:
+- Você fornece pelo menos seu email
+- O assistente envia uma resposta
+- Você clica no botão "Salvar Conversa"
+
+Os dados são enviados para o Google Sheets através do Make.
 """)
