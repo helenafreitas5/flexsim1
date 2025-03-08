@@ -73,17 +73,28 @@ def get_openai_api_key():
     
     return api_key
 
+# URL do webhook Make
+WEBHOOK_URL = "https://hook.us2.make.com/iu7sc1vc4254f29zop2f6j8e24a4dnj4"
+
 # Função para enviar dados para o webhook do Make
-def send_to_webhook(conversation_data):
+def send_to_webhook(user_info, last_message, last_response):
     try:
+        # Estrutura exata conforme solicitada no prompt do Make
+        # Apenas JSON puro com nome, email e mensagem
+        payload = {
+            "nome": user_info["name"],
+            "email": user_info["email"],
+            "mensagem": last_message
+        }
+        
         response = requests.post(
             WEBHOOK_URL,
-            json=conversation_data,
-            headers={"Content-Type": "application/json"}
+            json=payload,
+            headers={"Content-Type": "application/json"},
+            timeout=10  # Timeout de 10 segundos
         )
         
         if response.status_code == 200:
-            st.sidebar.success("Dados enviados com sucesso!", icon="✅")
             return True
         else:
             st.sidebar.error(f"Erro ao enviar dados: {response.status_code}")
@@ -109,8 +120,8 @@ if "user_info" not in st.session_state:
         "phone": ""
     }
 
-# URL do webhook Make
-WEBHOOK_URL = "https://hook.us2.make.com/iu7sc1vc4254f29zop2f6j8e24a4dnj4"
+# Título principal
+st.title("ChatBot com OpenAI Assistant")
 
 # Sidebar para configurações
 st.sidebar.title("Configurações")
@@ -136,9 +147,6 @@ if (user_name != st.session_state.user_info["name"] or
     st.session_state.user_info["name"] = user_name
     st.session_state.user_info["email"] = user_email
     st.session_state.user_info["phone"] = user_phone
-
-# Título principal
-st.title("ChatBot com OpenAI Assistant")
 
 # Obtenção da API key
 api_key = get_openai_api_key()
@@ -230,19 +238,15 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
                     content = assistant_message.content[0].text.value
                     st.session_state.messages.append({"role": "assistant", "content": content})
                     
-                    # Preparar dados para enviar ao webhook
-                    if st.session_state.user_info["email"]:  # Só envia se tiver pelo menos o email
-                        conversation_data = {
-                            "conversation_id": st.session_state.conversation_id,
-                            "timestamp": datetime.datetime.now().isoformat(),
-                            "user_info": st.session_state.user_info,
-                            "last_user_message": prompt,
-                            "last_assistant_response": content,
-                            "conversation_history": st.session_state.messages
-                        }
-                        
-                        # Enviar dados ao webhook de forma assíncrona
-                        send_to_webhook(conversation_data)
+                    # Enviar dados ao webhook se tiver pelo menos o email
+                    if st.session_state.user_info["email"]:
+                        success = send_to_webhook(
+                            st.session_state.user_info,
+                            prompt,
+                            content
+                        )
+                        if success:
+                            st.sidebar.success("Mensagem registrada!", icon="✅")
                     
                     # Reexibir as mensagens com a resposta
                     display_messages()
@@ -252,7 +256,7 @@ if prompt := st.chat_input("Digite sua mensagem aqui..."):
             except Exception as e:
                 st.error(f"Erro ao comunicar com a API da OpenAI: {str(e)}")
 
-# Botão para limpar o histórico
+# Botões de ação
 col1, col2 = st.columns(2)
 
 with col1:
@@ -262,21 +266,34 @@ with col1:
         st.experimental_rerun()
 
 with col2:
-    if st.button("Salvar Conversa") and st.session_state.user_info["email"]:
-        # Preparar dados para envio
-        conversation_data = {
-            "conversation_id": st.session_state.conversation_id,
-            "timestamp": datetime.datetime.now().isoformat(),
-            "user_info": st.session_state.user_info,
-            "conversation_history": st.session_state.messages,
-            "action": "manual_save"
-        }
-        
-        # Enviar dados ao webhook
-        if send_to_webhook(conversation_data):
-            st.success("Conversa salva com sucesso!")
+    if st.button("Salvar Conversa"):
+        if not st.session_state.user_info["email"]:
+            st.error("Por favor, preencha pelo menos seu email para salvar a conversa.")
+        elif len(st.session_state.messages) < 2:
+            st.warning("Ainda não há mensagens suficientes para salvar.")
         else:
-            st.error("Erro ao salvar conversa.")
+            # Encontrar a última troca de mensagens
+            last_user_msg = ""
+            last_assistant_msg = ""
+            
+            for msg in reversed(st.session_state.messages):
+                if msg["role"] == "assistant" and not last_assistant_msg:
+                    last_assistant_msg = msg["content"]
+                elif msg["role"] == "user" and not last_user_msg:
+                    last_user_msg = msg["content"]
+                
+                if last_user_msg and last_assistant_msg:
+                    break
+            
+            # Enviar ao webhook
+            if send_to_webhook(
+                st.session_state.user_info,
+                last_user_msg,
+                last_assistant_msg
+            ):
+                st.success("Conversa salva com sucesso!")
+            else:
+                st.error("Erro ao salvar conversa. Tente novamente.")
 
 # Informações adicionais
 st.sidebar.markdown("---")
@@ -297,7 +314,6 @@ st.sidebar.markdown("""
 As conversas são salvas automaticamente quando:
 - Você fornece pelo menos seu email
 - O assistente envia uma resposta
-- Você clica no botão "Salvar Conversa"
 
-Os dados são enviados para o Google Sheets através do Make.
+Você também pode salvar manualmente usando o botão "Salvar Conversa".
 """)
